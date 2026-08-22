@@ -16,7 +16,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-
+  
   airflow-init: #initialization service to create the database and the admin user for the airflow webserver
     image: apache/airflow:2.10.5
     depends_on:
