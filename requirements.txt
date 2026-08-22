@@ -1,0 +1,17 @@
+# API ingestion
+requests==2.32.5
+
+# Data processing
+pandas==2.3.2
+pyarrow==21.0.0
+
+# PostgreSQL
+psycopg2-binary==2.9.10
+SQLAlchemy==2.0.43
+
+# Environment/configuration
+python-dotenv==1.1.1
+PyYAML==6.0.2
+
+# Testing
+pytest==8.4.1
