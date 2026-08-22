@@ -1,1 +1,70 @@
-services: {}
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-silid}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-silid}
+      POSTGRES_DB: ${POSTGRES_DB:-silid}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"                  
+    volumes:
+      - postgres_data:/var/lib/postgresql/data #for data persistence
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro #for initialization scripts for the database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-silid} -d ${POSTGRES_DB:-silid}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  
+  airflow-init: #initialization service to create the database and the admin user for the airflow webserver
+    image: apache/airflow:2.10.5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &airflow-environment #declare reusable environment variables for airflow services
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-silid}:${POSTGRES_PASSWORD:-silid}@postgres:5432/${POSTGRES_DB:-silid}
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+      _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-postgres"
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes: &airflow-volumes #declare reusable volumes for airflow services
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - airflow_plugins:/opt/airflow/plugins
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - airflow db migrate && (airflow users create --username ${AIRFLOW_ADMIN_USERNAME:-admin} --password ${AIRFLOW_ADMIN_PASSWORD:-admin} --firstname SILID --lastname Admin --role Admin --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} || true)
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.5
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-environment #reuse the environment variables declared for airflow services
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes: *airflow-volumes #reuse the volumes declared for airflow services
+    command: scheduler
+
+  airflow-webserver:
+    image: apache/airflow:2.10.5
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-environment #reuse the environment variables declared for airflow services
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes: *airflow-volumes #reuse the volumes declared for airflow services
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    command: webserver
+
+volumes:
+  airflow_logs:
+  airflow_plugins:
+  postgres_data:
