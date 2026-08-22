@@ -32,9 +32,9 @@ services:
       _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-postgres"
     user: "${AIRFLOW_UID:-50000}:0"
     volumes: &airflow-volumes #declare reusable volumes for airflow services
-      - ./airflow/dags:/opt/airflow/dags
-      - airflow_logs:/opt/airflow/logs
-      - airflow_plugins:/opt/airflow/plugins
+      - ./airflow/dags:/opt/airflow/dags #bind mount the dags folder to the container
+      - airflow_logs:/opt/airflow/logs #volume mount for airflow logs to persist even if the container is removed
+      - airflow_plugins:/opt/airflow/plugins #volume mount for airflow plugins to persist even if the container is removed
     entrypoint: /bin/bash
     command:
       - -c
