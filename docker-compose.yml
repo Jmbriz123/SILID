@@ -22,6 +22,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      airflow-permissions:
+        condition: service_completed_successfully
     environment: &airflow-environment #declare reusable environment variables for airflow services
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-silid}:${POSTGRES_PASSWORD:-silid}@postgres:5432/${POSTGRES_DB:-silid}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -41,6 +43,17 @@ services:
     command:
       - -c
       - airflow db migrate && (airflow users create --username ${AIRFLOW_ADMIN_USERNAME:-admin} --password ${AIRFLOW_ADMIN_PASSWORD:-admin} --firstname SILID --lastname Admin --role Admin --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} || true)
+
+  airflow-permissions:
+    image: apache/airflow:2.10.5
+    user: "0:0"
+    volumes:
+      - airflow_logs:/opt/airflow/logs
+      - airflow_plugins:/opt/airflow/plugins
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - mkdir -p /opt/airflow/logs /opt/airflow/plugins && chown -R ${AIRFLOW_UID:-50000}:0 /opt/airflow/logs /opt/airflow/plugins
 
   airflow-scheduler:
     build: .
