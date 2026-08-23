@@ -1,6 +1,6 @@
 import os 
 from dotenv import load_dotenv
-
+from sqlalchemy.engine import URL
 load_dotenv() #load env variables to the environemt
 #get environment variables
 DB_HOST = os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST") or "postgres"
@@ -18,3 +18,5 @@ DATABASE_URL = URL.create(
     port=DB_PORT,
     database=DB_NAME,
 )
+
+print(DATABASE_URL)
