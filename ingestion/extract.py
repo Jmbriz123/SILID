@@ -38,7 +38,7 @@ def fetch_city_weather(city_key: str, city_meta: dict) -> dict:
         return {
             "city_key": city_key,
             "city_name":city_meta["name"],
-            "ingested_at": datetime.now(timezone.utc).isoformat,
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
             "raw_payload": response.json()
         }
     except requests.raise_for_status as e:
@@ -58,4 +58,3 @@ def run_extraction_batch() -> list[dict]:
 if __name__ == "__main__":
     data = run_extraction_batch()
     logger.info(f"Extracted {len(data)} city payloads successfully")
-    
