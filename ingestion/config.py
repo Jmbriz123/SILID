@@ -1,5 +1,5 @@
 #define city domain configuration
-CITIES = { #city - config key value pairs
+CITIES = { #city_key - city metadata value pairs
     "manila": {
         "name": "Manila",
         "latitude": 14.5995,
