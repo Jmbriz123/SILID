@@ -44,14 +44,14 @@ services:
       - -c
       - airflow db migrate && (airflow users create --username ${AIRFLOW_ADMIN_USERNAME:-admin} --password ${AIRFLOW_ADMIN_PASSWORD:-admin} --firstname SILID --lastname Admin --role Admin --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} || true)
 
-  airflow-permissions:
+  airflow-permissions: #give airflow ownership of the logs and plugins folders to avoid permission issues when running airflow commands in the container
     image: apache/airflow:2.10.5
     user: "0:0"
     volumes:
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
     entrypoint: /bin/bash
-    command:
+    command: #Make Airflow's user the owner of these folders and everything inside them
       - -c
       - mkdir -p /opt/airflow/logs /opt/airflow/plugins && chown -R ${AIRFLOW_UID:-50000}:0 /opt/airflow/logs /opt/airflow/plugins
 
