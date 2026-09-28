@@ -2,7 +2,12 @@
 
 > Weather Intelligence Platform for Productivity\
 > Data Engineering Portfolio Project\
-> Version 1.0
+> Version 1.1 — Step 0 contract reconciliation
+
+The [data contracts](DATA_CONTRACTS.md) define precise grains, identities, source
+limitations, publication rules, and KPI denominators. Follow the
+[delivery sequence](REQUIREMENT_TRACEABILITY.md) for execution order and the
+[traceability matrix](REQUIREMENT_TRACEABILITY.md) for acceptance evidence.
 
 ## 1. Project Overview
 
@@ -120,7 +125,11 @@ Target storage:
 
 -   MinIO locally
 -   S3-compatible object storage in a future cloud deployment
--   Optional raw PostgreSQL mirror for convenience
+-   Optional parsed PostgreSQL mirror for convenience, never the raw authority
+
+Persist the response body before JSON decoding, with immutable metadata stored
+separately. Preserve malformed bodies and retain legacy JSONB rows without claiming
+that their original response representation can be recovered. See ADR-001.
 
 ### Core DE concept: Raw immutability
 
@@ -157,7 +166,9 @@ Responsibilities:
 -   Dashboard-ready tables
 
 Gold is modeled using a **star schema** optimized for read-heavy
-analytical queries.
+analytical queries. Build isolated candidates; publish data and metadata in one
+transaction only after all critical checks and all configured cities pass.
+Historical repair cannot replace the current forecast with an older snapshot.
 
 ## 6.4 Presentation Layer
 
@@ -304,6 +315,11 @@ The platform should expose enough information to answer:
 
 **Open-Meteo**
 
+Its current conditions are model-derived. The retained observation fact name
+means captured current-condition samples, not station measurements. The standard
+API does not document provider issue time; keep it null with an availability
+status, and identify forecast history by retrieval snapshot.
+
 Purpose:
 
 -   Current weather
@@ -390,27 +406,41 @@ weight_config_version
 
 ### `fact_weather_observation`
 
-**Grain:** one city × one observed hour.
+**Grain:** one city × one observed hour. Select the latest valid current-condition
+sample within the Manila hour, retaining source time and artifact lineage. Missing
+observation hours remain missing; forecasts do not fill them.
 
 ### `fact_weather_forecast`
 
-**Grain:** one city × one forecasted hour × one forecast run.
+**Grain:** one city × one forecasted hour × one retrieved forecast snapshot.
 
 Must retain:
 
 ``` text
-forecast_issued_at
+forecast_snapshot_id
+fetched_at
+forecast_issued_at (nullable provider-supplied time)
+issue_time_status (supplied / unavailable)
 ```
 
 Previous forecasts are not overwritten.
 
 ### `fact_productivity_score`
 
-**Grain:** one city × one hour × one score profile.
+**Grain:** one city × one hour × one score profile in the current published
+projection. Additional immutable score history includes forecast snapshot and
+formula version. Historical trends select published scores available by the
+target hour, avoiding later-forecast leakage.
 
 ### `fact_alert`
 
-**Grain:** one triggered alert event.
+**Grain:** one triggered evaluation per city × target hour × alert type ×
+forecast snapshot × threshold version. Current alerts use the published snapshot.
+
+`dim_score_profile` references a current version while immutable prior weight
+configurations remain available. `season_ph` defaults to `unknown` until a sourced
+classification is adopted. Percentile populations and minimum sample sizes are
+defined in DATA_CONTRACTS.md.
 
 ## Slowly Changing Dimensions
 
@@ -499,6 +529,11 @@ are not required for the DE-first MVP.
   Historical hourly coverage   ≥ 95% over trailing 30 days
 
 ------------------------------------------------------------------------
+
+KPI measurement follows [DATA_CONTRACTS.md](DATA_CONTRACTS.md): all critical checks
+pass even when aggregate pass rate exceeds 98%; expected-run denominators include
+missing runs; forecasts do not count toward observation completeness; replay does
+not reset freshness. Before 30 days of operation, report provisional evidence.
 
 # 12. Portfolio Goal
 
