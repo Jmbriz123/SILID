@@ -1,7 +1,14 @@
 # SILID --- Technical Implementation Plan
 
 > Data Engineering Implementation Roadmap\
-> Version 1.0
+> Version 1.1 — Step 0 execution reconciliation
+
+The [delivery sequence](REQUIREMENT_TRACEABILITY.md) Steps 0–12 defines the
+execution order and mirrors the local detailed learning roadmap. The original phase numbers below remain reference topic numbers,
+not an instruction to postpone testing, run tracking, or idempotency.
+[Data contracts](DATA_CONTRACTS.md) govern behavior;
+[requirement traceability](REQUIREMENT_TRACEABILITY.md) defines delivery gates.
+Step 0 is documentation only; runtime guarantees remain unimplemented.
 
 # 1. Implementation Objective
 
@@ -65,9 +72,6 @@ ML
 silid-weather-intelligence/
 ├── README.md
 ├── ARCHITECTURE.md
-├── PROJECT_SPEC.md
-├── REQUIREMENTS.md
-├── IMPLEMENTATION_PLAN.md
 ├── docker-compose.yml
 ├── .env.example
 ├── .gitignore
@@ -79,8 +83,7 @@ silid-weather-intelligence/
 │   └── config/
 ├── ingestion/
 │   ├── sources/
-│   │   ├── open_meteo.py
-│   │   └── openweathermap.py
+│   │   └── open_meteo.py
 │   ├── bronze_writer.py
 │   └── tests/
 ├── transform/
@@ -99,6 +102,11 @@ silid-weather-intelligence/
 │   └── grafana/
 ├── infra/
 ├── docs/
+│   ├── PROJECT_SPEC.md
+│   ├── REQUIREMENTS.md
+│   ├── IMPLEMENTATION_PLAN.md
+│   ├── DATA_CONTRACTS.md
+│   ├── REQUIREMENT_TRACEABILITY.md
 │   ├── architecture-diagram.png
 │   ├── adr/
 │   └── screenshots/
@@ -384,10 +392,11 @@ weather_pipeline_hourly
 Initial version:
 
 ``` text
-extract_weather
-      ↓
-write_bronze
+extract_and_land_bronze → artifact references
 ```
+
+Capture and land the response before parsing. Do not send raw payloads through
+Airflow task metadata. Reuse durable accepted artifacts on retries.
 
 Then evolve toward:
 
@@ -401,6 +410,8 @@ transform_to_silver
 dbt_run_gold
   ↓
 quality_gate_gold
+  ↓
+publish_gold
   ↓
 publish_metrics
 ```
@@ -502,8 +513,8 @@ Observation example:
 (city_id, observation_timestamp, source_id)
 ```
 
-Forecasts must additionally preserve forecast-run identity such as
-`forecast_issued_at`.
+Forecasts preserve `forecast_snapshot_id` and nullable provider-supplied
+`forecast_issued_at`; issue time alone is not a key. See DATA_CONTRACTS.md.
 
 ## Tasks
 
@@ -696,19 +707,11 @@ append-only
 
 Use incremental strategies where appropriate.
 
-Conceptual dbt pattern:
-
-``` sql
-{% if is_incremental() %}
-
-where ingestion_timestamp >
-    (select max(ingestion_timestamp) from {{ this }})
-
-{% endif %}
-```
-
-The final implementation must account for late-arriving/reprocessed data
-rather than copying this example blindly.
+Select pending artifacts by artifact ID, stage, and transformation version.
+Commit outputs before checkpoint completion and make repeated writes idempotent.
+A maximum event/ingestion timestamp alone can skip late or replayed input; it is
+not the processing contract. Introduce this with Silver in detailed Step 5, then
+verify full-rebuild equivalence in Step 9.
 
 ## Tasks
 
@@ -739,7 +742,10 @@ remaining safe to rerun.
 
 ## Goals
 
-Prevent invalid Gold data from becoming the current served snapshot.
+Prevent invalid Gold data from becoming the current served snapshot. Candidates
+are isolated from readers. Every critical check and every configured city must
+pass before a transaction promotes affected rows and publication metadata.
+Metrics finalization runs on failure paths too, without masking failure.
 
 ## Checks
 
@@ -791,8 +797,9 @@ weather_pipeline_daily_rollup
 
 ## Dependency
 
-Gate rollup on successful completion of the required previous hourly
-processing.
+Gate rollup on all expected prior-day city/hour coverage and required hourly
+processing/publication. Wait at most 60 minutes, then record incomplete-period
+failure and retain the previous rollups. Repair later through explicit replay.
 
 ## Definition of Done
 
@@ -983,9 +990,14 @@ ADR-006: Gold-only dashboard access
 
 ------------------------------------------------------------------------
 
-# 22. Four-Week Milestone Plan
+# 22. Learning-Gated Milestones
 
-## Week 1 --- Foundations & Bronze
+These retain the original milestone themes, not four promised calendar weeks.
+Advance only after validation and a learning review. Detailed Steps 0–12 are the
+authoritative dependency order; CI, tests, run records, and rerun safety start
+with the relevant components.
+
+## Milestone A --- Foundations & Bronze
 
 Deliver:
 
@@ -1001,7 +1013,7 @@ Deliver:
 **Core DE learned:** ingestion, orchestration basics, raw storage,
 Docker.
 
-## Week 2 --- Silver & Quality
+## Milestone B --- Silver & Quality
 
 Deliver:
 
@@ -1017,7 +1029,7 @@ Deliver:
 **Core DE learned:** data contracts, quality, idempotency, defensive
 pipelines.
 
-## Week 3 --- Gold & dbt
+## Milestone C --- Gold & dbt
 
 Deliver:
 
@@ -1033,7 +1045,7 @@ Deliver:
 **Core DE learned:** SQL transformation, dimensional modeling,
 incremental processing.
 
-## Week 4 --- Serving & Operations
+## Milestone D --- Serving & Operations
 
 Deliver:
 

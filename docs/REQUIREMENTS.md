@@ -1,15 +1,21 @@
 # SILID --- Software Requirements Specification
 
 > Functional and Non-Functional Requirements\
-> Version 1.0
+> Version 1.1 — Step 0 contract reconciliation
 
 # 1. Purpose
 
 This document defines the software requirements for the SILID Weather
 Intelligence Platform.
 
-Requirement identifiers should remain stable in Git so implementation
-commits, issues, tests, and pull requests can reference them directly.
+Requirement identifiers remain stable in Git so implementation commits, issues,
+tests, and pull requests can reference them directly.
+
+The [data contracts](DATA_CONTRACTS.md) define source semantics, grains,
+identities, quality/publication policy, and KPI measurement. The
+[traceability matrix](REQUIREMENT_TRACEABILITY.md) maps every requirement to a
+delivery step and acceptance check. These are target behaviors, not claims that
+the current prototype implements them.
 
 ------------------------------------------------------------------------
 
@@ -37,6 +43,7 @@ Philippine cities.
 
 **Requirement:** The system shall ingest and persist at least 24--48
 hours of hourly forecast data per configured city per ingestion run.
+The MVP contract requests and validates 48 consecutive hourly slots.
 
 Minimum target variables:
 
@@ -52,7 +59,10 @@ Minimum target variables:
 ## FR-003 --- Historical Weather Archive
 
 **Requirement:** The system shall maintain an append-only historical
-record of observed and forecasted conditions.
+record of captured current conditions and forecast snapshots in Bronze.
+For Open-Meteo, current conditions are model-derived, not station observations.
+Derived canonical projections may change through versioned replay; source history
+and forecast/score versions remain available.
 
 The archive shall support:
 
@@ -102,7 +112,9 @@ Productivity Score and expose the highest-ranked windows through Gold
 tables.
 
 The dashboard shall consume the precomputed result rather than
-independently recomputing the ranking.
+independently recomputing the ranking. MVP windows are individual future hourly
+slots; score descending and target hour ascending define deterministic order.
+Expired recommendations are hidden without recomputing rankings.
 
 ------------------------------------------------------------------------
 
@@ -145,7 +157,10 @@ Alert records shall contain sufficient context to identify:
 **Requirement:** The dashboard shall display historical heat-index and
 productivity-score trends for trailing periods such as 7 and 30 days.
 
-The system shall provide percentile context such as "today vs. typical."
+The system shall provide percentile context such as "today vs. typical."
+Weather history uses model-derived observations; score history uses published
+forecast scores available before their target hour. Reference populations, minimum
+sample counts, formula separation, and missing-history behavior follow DATA_CONTRACTS.md.
 
 ------------------------------------------------------------------------
 
@@ -180,8 +195,12 @@ Gold shall use dimensional/star-schema modeling where specified.
 
 ## FR-014 --- Forecast Version Preservation
 
-**Requirement:** Forecast records shall preserve `forecast_issued_at`
-and shall not overwrite all previous forecasts for the same target hour.
+**Requirement:** Forecast records shall preserve a stable `forecast_snapshot_id`,
+`fetched_at`, and provider-supplied `forecast_issued_at` when available. If the
+source does not supply issue time, retain null and `issue_time_status = unavailable`;
+never substitute retrieval time. Previous snapshots for the same target hour
+shall remain available. A snapshot identifies a retrieved response, not a provider
+model run. See [ADR-001](adr/001-source-history.md).
 
 **Core DE:** temporal modeling and forecast-history preservation.
 
@@ -190,7 +209,9 @@ and shall not overwrite all previous forecasts for the same target hour.
 ## FR-015 --- Data Quality Gates
 
 **Requirement:** The pipeline shall execute blocking quality checks
-before invalid data is promoted downstream.
+before invalid data is promoted downstream. All critical checks must pass; the
+aggregate quality-pass KPI cannot waive a critical failure. Quarantine an invalid
+city batch; preserve its raw artifacts and validation reasons.
 
 Checks include:
 
@@ -254,7 +275,11 @@ including, where applicable:
 validation, the system shall continue serving the most recent valid Gold
 dataset.
 
-The dashboard shall expose a visible stale-data/freshness indicator.
+The dashboard shall expose a visible stale-data/freshness indicator and the latest
+attempt outcome. Build isolated Gold candidates, validate every city in the run
+manifest, and publish data plus metadata atomically. Before the first successful
+publication, show no-data status. Historical replay cannot reset live freshness.
+See [ADR-002](adr/002-quality-and-publication.md).
 
 ------------------------------------------------------------------------
 
@@ -345,6 +370,10 @@ Target validation pass rate:
 ``` text
 ≥ 98% of configured Great Expectations checks per batch
 ```
+
+Report this separately from the requirement that 100% of critical checks pass.
+Count executed expectations under a declared suite version; skipped required
+checks block, and zero executed checks is unavailable, not a successful batch.
 
 The platform targets **zero silent schema-drift incidents**.
 
@@ -523,19 +552,26 @@ Grain: one row per scoring profile.
 
 ## DM-005 --- `fact_weather_observation`
 
-Grain: one row per city per observed hour.
+Grain: one row per city per observed hour. In this MVP, select the latest valid
+model-derived current-condition sample within each Manila hour; retain the exact
+source time and lineage. A forecast cannot fill a missing observation hour.
 
 ## DM-006 --- `fact_weather_forecast`
 
-Grain: one row per city per forecasted hour per forecast run.
+Grain: one row per city per forecasted hour per retrieved forecast snapshot.
+Preserve all snapshot versions and nullable provider issue time.
 
 ## DM-007 --- `fact_productivity_score`
 
-Grain: one row per city per hour per score profile.
+Grain: one row per city per hour per score profile in the published current
+projection. Keep separate score history at city × hour × profile × forecast
+snapshot × formula version so recomputation does not erase earlier scores.
 
 ## DM-008 --- `fact_alert`
 
-Grain: one row per triggered alert event.
+Grain: one row per triggered alert evaluation event, keyed by city, target hour,
+alert type, forecast snapshot, and threshold version. Retry does not duplicate an
+event; a new forecast may create another event. Current alerts use published snapshots.
 
 ------------------------------------------------------------------------
 
@@ -562,8 +598,14 @@ dbt_run_gold
   ↓
 quality_gate_gold
   ↓
+publish_gold
+  ↓
 publish_metrics
 ```
+
+Metrics finalization must also run on failure paths without turning a failed DAG
+into a successful one. `extract` includes durable Bronze landing; task outputs
+carry artifact references. Candidates remain invisible until `publish_gold`.
 
 ## ORCH-002 --- Daily Rollup DAG
 
@@ -589,10 +631,16 @@ daily rollup    → 00:15 Asia/Manila
 Target policy:
 
 ``` text
-3 retries
-exponential backoff:
-1 minute → 5 minutes → 15 minutes
+3 retries after the first attempt
+native exponential backoff
+base delay: 1 minute
+maximum delay: 15 minutes
 ```
+
+Actual waits follow the selected Airflow version; exact 1/5/15-minute delays are
+not required. Retry transient network errors, 429, and 5xx; fail deterministic
+configuration/data errors directly. Airflow owns retries; no second HTTP retry loop.
+See [ADR-003](adr/003-learning-and-execution-policy.md).
 
 ## ORCH-005 --- Transformation Retry Policy
 
@@ -607,7 +655,10 @@ useful run/task context.
 ## ORCH-007 --- Daily Dependency
 
 The daily rollup shall wait for the required previous hourly processing
-to complete successfully before aggregating incomplete data.
+to complete successfully and check every expected previous-day city/hour.
+Wait at most 60 minutes after the daily task starts; record incomplete-period
+failure on timeout and retain prior rollups. Later replay repairs missing periods.
+The 95% monthly coverage target does not make an incomplete daily batch complete.
 
 ------------------------------------------------------------------------
 
