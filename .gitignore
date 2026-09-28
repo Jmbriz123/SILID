@@ -1,3 +1,6 @@
+# Local detailed development plans with my study notes and draft of architectural decisions and system design
+docs/DETAILED_IMPLEMENTATION_PLAN.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
