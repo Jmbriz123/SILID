@@ -14,11 +14,14 @@ Step 0 deliverables: [data contracts](DATA_CONTRACTS.md),
 [ADR-001](adr/001-source-history.md), [ADR-002](adr/002-quality-and-publication.md),
 [ADR-003](adr/003-learning-and-execution-policy.md), and reconciled requirements,
 specification, and plans. The user learning review follows document validation.
-Step 1 and all later runtime work remain unstarted.
+Step 1 development/configuration baseline is delivered; see
+[development setup and validation](DEVELOPMENT.md). Its local tests validate
+settings, packaging, and caller boundaries. Container integration and later
+pipeline guarantees remain unimplemented; remote CI awaits a push.
 
 ## Delivery sequence
 
-Only Step 0 documentation is delivered. Request each later step separately.
+Steps 0 and 1 are delivered. Request each later step separately.
 
 | Step | Bounded implementation unit | Depends on |
 |---|---|---|
@@ -125,7 +128,7 @@ not automatically create a branch or commits. Review the complete diff first.
 | `docs(architecture): reconcile source and temporal contracts` | DATA_CONTRACTS.md, ADR-001, ADR-002, REQUIREMENTS.md, PROJECT_SPEC.md | One coherent semantic change covers identity, source meaning, critical gates and publication requirements. | Requirement IDs unchanged; source citations/local links resolve; walkthrough invariants agree with the requirements. |
 | `docs(plan): align delivery gates and requirement traceability` | ADR-003, REQUIREMENT_TRACEABILITY.md, IMPLEMENTATION_PLAN.md (local roadmap status updated separately; Git-ignored) | Aligns workflow, dependency order, measurements and delivery tracking around the contract baseline. | All 58 requirement IDs mapped once; all 13 roadmap steps/commit tables remain; no runtime files changed; Markdown diff passes whitespace checks. |
 
-No application tests are claimed for a documentation-only change. Runtime
-scenarios above become tests when their components are implemented. After this
-step's learning review, request Step 1 to establish packaging, validated settings,
-linting, tests, and CI; do not begin those changes during Step 0.
+The Step 0 checks above were documentation-only. Step 1 now adds offline tests
+for settings and existing caller boundaries, described in DEVELOPMENT.md.
+Runtime guarantees in the requirement map remain open until their component
+acceptance checks are executed. Next: Step 2, only when explicitly requested.

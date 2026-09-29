@@ -8,7 +8,10 @@ execution order and mirrors the local detailed learning roadmap. The original ph
 not an instruction to postpone testing, run tracking, or idempotency.
 [Data contracts](DATA_CONTRACTS.md) govern behavior;
 [requirement traceability](REQUIREMENT_TRACEABILITY.md) defines delivery gates.
-Step 0 is documentation only; runtime guarantees remain unimplemented.
+Step 0 contracts and Step 1 development/configuration baseline are delivered.
+See [development setup](DEVELOPMENT.md) for the locked installation, explicit
+settings, offline tests and CI commands. Step 2 infrastructure and downstream
+pipeline guarantees remain unimplemented.
 
 # 1. Implementation Objective
 
