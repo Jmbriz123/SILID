@@ -1,0 +1,2 @@
+include .env.example .python-version uv.lock
+recursive-include tests *.py

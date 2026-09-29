@@ -1,60 +1,74 @@
+"""Prototype hourly extraction; raw-response preservation is roadmap Step 3."""
+
+import argparse
 import logging
 from datetime import datetime, timezone
-import requests
-from ingestion.config import CITIES
-#configuration of the logging system
-logging.basicConfig(
-    level=logging.INFO,
-     format="%(asctime)s - %(levelname)s - %(message)s"
-     )
-#create logger for this module
-logger = logging.getLogger(__name__)
-BASE_URL = "https://api.open-meteo.com/v1/forecast" #target endpoint URL for Open-Meteo-API
+from pathlib import Path
+from typing import Any
 
-def fetch_city_weather(city_key: str, city_meta: dict) -> dict:
-    """ Fetch hourly forecast and observed variables for a single city"""
-    
-    #prepare variable containing API/query parameters
+import requests
+
+from config.cities import CITIES, CityConfig, validate_cities
+from config.config import WeatherSettings, load_environment
+
+logger = logging.getLogger(__name__)
+
+
+def fetch_city_weather(
+    city_key: str,
+    city_meta: CityConfig,
+    *,
+    settings: WeatherSettings | None = None,
+) -> dict[str, Any]:
+    """Fetch the prototype's hourly payload using explicit weather settings."""
+    settings = settings if settings is not None else WeatherSettings.from_env()
     api_parameters = {
         "latitude": city_meta["latitude"],
         "longitude": city_meta["longitude"],
         "hourly": [
-            "temperature_2m",  #standard ambient air temperature measured 2 meters above the ground (the meteorological standard)
-            "relative_humidity_2m", #Measures atmospheric moisture relative to temperature. It is critical for forecasting fog, dew, agricultural drying conditions, or HVAC load calculations.
-            "apparent_temperature", # The "feels-like" temperature. It factors in humidity and wind to reflect how heat is actually experienced by humans, which is essential for consumer-facing dashboards or heat-index monitoring
-            "precipitation_probability", #The likelihood (0–100%) that measurable rain will fall during that hour. Essential for predictive alerts and likelihood scoring
-            "precipitation", #The total liquid water equivalent of all moisture (rain, snow, sleet, hail) falling during the hour.
-            "rain", #Specifically measures liquid rainfall. Isolating rain from total precipitation prevents misinterpreting frozen or mixed precipitation types when modeling tropical or varied climates.
-            "wind_speed_10m" #Standardized wind speed measured 10 meters above the surface. This is critical for maritime tracking, storm warnings, drone operations, or wind energy generation models.
+            "temperature_2m",
+            "relative_humidity_2m",
+            "apparent_temperature",
+            "precipitation_probability",
+            "precipitation",
+            "rain",
+            "wind_speed_10m",
         ],
-        "timezone": city_meta["timezone"]
+        "timezone": settings.timezone,
     }
-    
-    #actual fetching of data using API
     try:
-        response = requests.get(BASE_URL, params=api_parameters, timeout=10)
-        response.raise_for_status() #raise exception if the server returned an HTTP error status
-        
+        response = requests.get(settings.base_url, params=api_parameters, timeout=10)
+        response.raise_for_status()
         return {
             "city_key": city_key,
-            "city_name":city_meta["name"],
+            "city_name": city_meta["name"],
             "ingested_at": datetime.now(timezone.utc).isoformat(),
-            "raw_payload": response.json()
+            "raw_payload": response.json(),
         }
-    except requests.raise_for_status as e:
-        logger.error(f"API extraction failed for {city_key}: {e} ")
+    except requests.RequestException:
+        # Do not swallow failure or log a potentially sensitive response/URL.
+        logger.error("API extraction failed for city %s", city_key)
+        raise
 
-def run_extraction_batch() -> list[dict]:
-    """
-    Iterate over configured cities and extract API payloads
-    """
+
+def run_extraction_batch(
+    *, settings: WeatherSettings | None = None
+) -> list[dict[str, Any]]:
+    """Validate the complete catalog before making any source requests."""
+    settings = settings if settings is not None else WeatherSettings.from_env()
+    cities = validate_cities(CITIES)
     records = []
-    for city_key, city_meta in CITIES.items():
-        logger.info("Extracting Open-Meteo API ppayloads")
-        records.append(fetch_city_weather(city_key, city_meta))
-
+    for city_key, city_meta in cities.items():
+        logger.info("Extracting weather for city %s", city_key)
+        records.append(fetch_city_weather(city_key, city_meta, settings=settings))
     return records
 
+
 if __name__ == "__main__":
-    data = run_extraction_batch()
-    logger.info(f"Extracted {len(data)} city payloads successfully")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--env-file", type=Path)
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO)
+    weather = WeatherSettings.from_env(load_environment(args.env_file))
+    data = run_extraction_batch(settings=weather)
+    logger.info("Extracted %d city payloads", len(data))
