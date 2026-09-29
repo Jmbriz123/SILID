@@ -37,7 +37,7 @@ def load_environment(
             for key, value in dotenv_values(env_file, interpolate=False).items()
             if value is not None
         )
-    #overlay the actual process environment
+    # overlay the actual process environment
     values.update(os.environ if environ is None else environ)
     return values
 
